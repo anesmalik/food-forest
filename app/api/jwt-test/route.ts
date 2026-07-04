@@ -22,7 +22,6 @@ export async function GET() {
       auth: {
         persistSession: false,
         autoRefreshToken: false,
-        detectSessionInContext: false,
       },
     }
   )
