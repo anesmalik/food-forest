@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
-import { ClerkProvider, auth } from '@clerk/nextjs/server'
+import { ClerkProvider } from '@clerk/nextjs'
+import { auth } from '@clerk/nextjs/server'
 import { createServiceRoleClient } from '@/lib/supabase'
 import './globals.css'
 
