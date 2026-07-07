@@ -532,7 +532,7 @@ export type Database = {
           display_name: string
           email: string
           id: string
-          role: Database["public"]["Enums"]["user_role"]
+          role: Database["public"]["Enums"]["user_role"] | null
           supervisor_id: string | null
         }
         Insert: {
@@ -542,7 +542,7 @@ export type Database = {
           display_name: string
           email: string
           id?: string
-          role: Database["public"]["Enums"]["user_role"]
+          role: Database["public"]["Enums"]["user_role"] | null
           supervisor_id?: string | null
         }
         Update: {
@@ -552,7 +552,7 @@ export type Database = {
           display_name?: string
           email?: string
           id?: string
-          role?: Database["public"]["Enums"]["user_role"]
+          role?: Database["public"]["Enums"]["user_role"] | null
           supervisor_id?: string | null
         }
         Relationships: [
@@ -664,6 +664,14 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      assign_user_placement: {
+        Args: { target: string; new_role: Database["public"]["Enums"]["user_role"]; new_supervisor: string | null }
+        Returns: undefined
+      }
+      try_bootstrap_admin: {
+        Args: { target_user_id: string; bootstrap_email: string }
+        Returns: string
+      }
       current_app_user: { Args: never; Returns: string }
       is_in_subtree: {
         Args: { ancestor: string; descendant: string }

@@ -2,7 +2,7 @@
 -- 20240001000000_extensions_and_enums.sql
 
 create extension if not exists "pgcrypto";
-create extension if not exists "vector";
+create extension if not exists "vector" schema extensions;
 
 create type user_role as enum ('admin', 'consultant', 'site_manager', 'foreman');
 create type task_state as enum ('assigned', 'in_progress', 'completed', 'missed', 'cancelled');

@@ -143,6 +143,35 @@ client-owned environment. Append-only forever after that commit.
 
 Freeze point: stage zero completion, July 2026. Record commit hash when tagged.
 
+### Stage-zero migration baseline frozen at stage-one start
+Stage-zero migration baseline frozen at stage-one start, commit `79df76cc8b1d8850d0942c2f33eea7d0770c8eed`, `2026-07-06`. All subsequent schema changes are appended migrations. Reason: agent-generated application code is now schema-dependent; squashing under it produces silent drift.
+
+### Two-phase user creation: webhook identity-only, admin completes via assign_user_placement()
+Clerk webhook writes identity columns only (clerk_id, email, display_name). Role
+and supervisor_id are null on insert. A user with role IS NULL is in
+"awaiting placement" state. An admin assigns role and supervisor via
+assign_user_placement(), the sole mutation path for those columns besides
+bootstrap. This separates identity provisioning (Clerk's job) from org placement
+(our job).
+
+### Bootstrap: configured email, zero-admin precondition, advisory-lock guarded
+First admin is bootstrapped at sign-in time by a guarded server action. Env var
+BOOTSTRAP_ADMIN_EMAIL holds the designated first admin's email. Precondition:
+zero rows in users where role = 'admin'. pg_advisory_xact_lock with a constant
+key serializes the check-and-promote. Three outcomes logged to usage_events as
+user_bootstrap: fired (promoted), precondition_false (admin already exists),
+email_mismatch (zero admins but wrong identity). SERIALIZABLE isolation
+explicitly rejected in favor of the advisory lock — the lock is sufficient and
+avoids serialization failure retries.
+
+### assign_user_placement(): sole path for role/supervisor mutation
+SECURITY DEFINER function. Mutates only role and supervisor_id on the target
+row. Admin-gated via current_app_user() role check. Cycle-rejecting via
+is_in_subtree(target, new_supervisor). Used for both initial placement and
+reparenting — same function, same checks. No RLS UPDATE policy on users allows
+direct client writes to these columns (update policy is check(false)). Logs
+user_placement_assigned on first placement, user_reparented on supervisor change.
+
 ### entity_type as lookup table, not enum
 entity_types is a lookup table with a stable text key (slug), not a Postgres
 enum. If types turn out fixed, the join costs nothing at this scale. If they

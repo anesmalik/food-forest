@@ -49,7 +49,6 @@ export async function POST(req: Request) {
           clerk_id: clerkId,
           email,
           display_name: displayName,
-          role: 'foreman', // default role; admin changes this manually
         },
         { onConflict: 'clerk_id' }
       )
