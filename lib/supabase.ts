@@ -7,15 +7,8 @@ const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
 // For server components and route handlers - uses Clerk token for RLS
 export async function createServerSupabaseClient() {
-  const { getToken } = await auth()
-  const token = await getToken({ template: undefined })
-
   return createClient(supabaseUrl, supabaseAnonKey, {
-    global: {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    },
+    accessToken: async () => (await auth()).getToken(),
     auth: {
       persistSession: false,
       autoRefreshToken: false,

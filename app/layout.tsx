@@ -1,5 +1,5 @@
 import type { Metadata } from 'next'
-import { ClerkProvider } from '@clerk/nextjs'
+import { ClerkProvider, UserButton } from '@clerk/nextjs'
 import { auth } from '@clerk/nextjs/server'
 import { createServiceRoleClient } from '@/lib/supabase'
 import { tryBootstrapAdmin } from '@/lib/actions/bootstrap'
@@ -70,7 +70,15 @@ export default async function RootLayout({
   return (
     <ClerkProvider>
       <html lang="en">
-        <body>{children}</body>
+        <body>
+          <div className="min-h-screen">
+            <header className="flex items-center justify-between px-4 py-3 border-b bg-white">
+              <span className="font-semibold text-gray-800">Food Forest</span>
+              <UserButton />
+            </header>
+            {children}
+          </div>
+        </body>
       </html>
     </ClerkProvider>
   )

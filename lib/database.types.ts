@@ -192,6 +192,8 @@ export type Database = {
         Row: {
           author_id: string
           body: string
+          body_normalized: string
+          corrects_entry_id: string | null
           created_at: string
           id: string
           sensitivity: Database["public"]["Enums"]["sensitivity"]
@@ -201,6 +203,7 @@ export type Database = {
         Insert: {
           author_id: string
           body: string
+          corrects_entry_id?: string | null
           created_at?: string
           id?: string
           sensitivity?: Database["public"]["Enums"]["sensitivity"]
@@ -210,6 +213,7 @@ export type Database = {
         Update: {
           author_id?: string
           body?: string
+          corrects_entry_id?: string | null
           created_at?: string
           id?: string
           sensitivity?: Database["public"]["Enums"]["sensitivity"]
@@ -673,9 +677,53 @@ export type Database = {
         Returns: string
       }
       current_app_user: { Args: never; Returns: string }
+      is_admin: { Args: never; Returns: boolean }
       is_in_subtree: {
         Args: { ancestor: string; descendant: string }
         Returns: boolean
+      }
+      normalize_for_search: {
+        Args: { input: string }
+        Returns: string
+      }
+      journal_page: {
+        Args: {
+          p_limit?: number
+          p_cursor_created_at?: string | null
+          p_cursor_id?: string | null
+          p_author_filter?: string | null
+        }
+        Returns: {
+          id: string
+          author_id: string
+          author_name: string | null
+          body: string | null
+          sensitivity: Database["public"]["Enums"]["sensitivity"]
+          created_at: string
+          soft_deleted_at: string | null
+          corrects_entry_id: string | null
+          corrects_entry_created_at: string | null
+          entity_id: string | null
+          entity_name: string | null
+          entity_type: string | null
+        }[]
+      }
+      journal_search: {
+        Args: { p_query: string; p_limit?: number }
+        Returns: {
+          id: string
+          author_id: string
+          author_name: string | null
+          body: string | null
+          sensitivity: Database["public"]["Enums"]["sensitivity"]
+          created_at: string
+          soft_deleted_at: string | null
+          corrects_entry_id: string | null
+          corrects_entry_created_at: string | null
+          entity_id: string | null
+          entity_name: string | null
+          entity_type: string | null
+        }[]
       }
     }
     Enums: {
@@ -707,6 +755,8 @@ export type Database = {
 }
 
 type DatabaseWithoutInternals = Omit<Database, "__InternalSupabase">
+
+export type Task = Database["public"]["Tables"]["tasks"]["Row"]
 
 type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">]
 

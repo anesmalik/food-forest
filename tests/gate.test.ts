@@ -67,7 +67,7 @@ const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
 function authClient(jwt: string) {
   return createClient(SUPABASE_URL, ANON_KEY, {
     realtime: { params: { eventsPerSecond: 0 }, transport: ws },
-    global: { headers: { Authorization: `Bearer ${jwt}` } },
+    accessToken: async () => jwt,
     auth: { persistSession: false, autoRefreshToken: false },
   })
 }

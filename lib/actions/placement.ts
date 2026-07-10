@@ -55,11 +55,13 @@ export async function getUsersForPlacement() {
   const supabase = await createServerSupabaseClient()
 
   // Defense-in-depth: only admins see this page's data
-  const { data: caller } = await supabase
+  const { data: caller, error: callerError } = await supabase
     .from('users')
     .select('role')
     .eq('clerk_id', userId)
     .single()
+
+  console.log('caller check:', { userId, caller, callerError })
 
   if (!caller || caller.role !== 'admin') {
     return { awaiting: [], placed: [] }
