@@ -4,6 +4,11 @@
 // Page size pinned per spec §1.12 — not configurable per-component.
 export const JOURNAL_PAGE_SIZE = 50
 
+// T2.2: Summary retrieval pinned to last 30 days and 50 entries (whichever is smaller).
+// Per spec §1.4, the retrieval window is exact — no agent discretion to widen for "no recent activity".
+export const SUMMARY_WINDOW_DAYS = 30
+export const SUMMARY_MAX_ENTRIES = 50
+
 export type JournalEntry = {
   id: string
   author_id: string

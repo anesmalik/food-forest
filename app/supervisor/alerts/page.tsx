@@ -97,9 +97,16 @@ export default function AlertsPage() {
         <div className="space-y-3">
           {alerts.map((alert) => {
             const task = taskMap.get(alert.task_id)
+            // task_alerts RLS grants visibility on two independent conditions (assigner_id =
+            // caller, OR caller is an ancestor of assignee_id) — getSubtreeMembers() only
+            // covers the second. A supervisor who assigned a task to someone outside their
+            // own subtree (RLS allows this; task assignment isn't hierarchy-gated) still has
+            // a legitimate alert here, so a missing assignee lookup must not drop the row —
+            // fall back to showing the raw assignee_id rather than silently hiding a real alert.
             const assignee = task ? memberMap.get(task.assignee_id) : null
+            const assigneeLabel = assignee?.display_name ?? task?.assignee_id ?? 'Unknown'
 
-            if (!task || !assignee || !task.due_date) return null
+            if (!task || !task.due_date) return null
 
             const daysOverdue = getDaysOverdue(task.due_date)
             const overdueText = formatOverdueText(daysOverdue)
@@ -115,7 +122,7 @@ export default function AlertsPage() {
                       {task.title}
                     </h3>
                     <p className="text-sm text-gray-600 whitespace-nowrap">
-                      {assignee.display_name}
+                      {assigneeLabel}
                     </p>
                   </div>
                   <div className="flex flex-col sm:flex-row sm:items-center gap-2 text-xs text-gray-600">

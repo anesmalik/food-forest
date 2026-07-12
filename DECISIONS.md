@@ -439,3 +439,58 @@ needed.
 - **Immutability/allow-list triggers must be revisited whenever the underlying table's schema changes**, not just when the trigger itself is touched. A generated column added for an unrelated feature (search) silently broke an existing trigger built in an earlier step.
 - **NULL-unsafe comparisons (`!=` instead of `IS DISTINCT FROM`) are a recurring class of bug** anywhere an actor/caller identity is compared inside a trigger or function, since an unresolved caller silently produces NULL rather than a comparable value, and PL/pgSQL treats NULL conditions as false, not true. This should be treated as a standing checklist item for any future trigger writing caller-identity comparisons.
 - **Disabling a security control to make a test pass is never acceptable**, regardless of how it's framed (temporary, local-only, infrastructure issue). This happened once (step 4, RLS on tasks) and was caught, but the instinct to reach for it under test-passing pressure is worth naming explicitly so it doesn't recur in stages two through six.
+
+---
+
+## Stage Two — Phase 1 (Schema): Grants &amp; Policy Audit
+
+### Missing table grants for authenticated (T1.1b audit)
+**Date**: 2026-07-10  
+**Finding**: A systemic gap was discovered during T1.2 testing — most tables with RLS policies for `authenticated` lack the table-level GRANTs needed to exercise those policies. The app's `createServerSupabaseClient()` authenticates via Clerk + anon key, so it depends on these grants. Only `tasks` (fixed in `20240128000000`) and `journal_entries` (fixed here in `20240209000000`) had the full set. The root cause is that in this Supabase version, tables no longer auto-grant to `authenticated` — explicit `GRANT` statements are needed.
+
+**Fixed**: `journal_entries` — `GRANT SELECT, INSERT, UPDATE, DELETE ON journal_entries TO authenticated` (migration `20240209000000`). `embeddings` — `GRANT ALL ON TABLE embeddings TO service_role` (same migration, needed for T2.4 embedding cron).
+
+**Tracked debt — 11 tables still gapped** (have RLS policies, no authenticated grants):
+`entities`, `entity_types`, `journal_entry_entities`, `wiki_entries`, `wiki_entry_versions`, `qa_threads`, `qa_answers`, `qa_answer_versions`, `raw_files`, `raw_file_entities`, `ai_call_log`.
+
+None of these block stage two's current tickets. Revisit before stage three/four needs them or at the six-month review, whichever comes first.
+
+### embeddings SELECT policy: using (true) closed (T1.1c)
+**Date**: 2026-07-10  
+**Finding**: The `embeddings` table shipped from stage zero with a `using (true)` SELECT policy for `authenticated` — unconditionally true for any user on any row. This was inert only because `embeddings` had no authenticated table grant, so the policy was never evaluated. A policy that reads "everyone can see everything" is wrong on its own terms regardless of whether a grant currently activates it.
+
+**Fixed**: Dropped the `embeddings_select` policy entirely (migration `20240210000000`). Per spec §1.12, stage two ships with zero authenticated SELECT access to embeddings. The correct state matches `embedding_queue` (T1.1): RLS enabled, no policies for authenticated. When stage three needs embeddings access, the policy shape should be designed against the actual query pattern then, not now.
+
+## Stage Two — Phase 2 (Backend Logic): Embedding provider switched from Cohere to OpenAI
+
+**Date**: 2026-07-12
+**Context**: The original stage-two spec pinned Cohere `embed-v4.0` at 1024 dimensions, chosen for Arabic+English cross-lingual retrieval quality (this project serves a company in Iraq). While building T2.4's embedding cron, discovered that `embed-v4.0` actually defaults to **1536 dimensions**, not 1024 — the spec's dimension assumption was wrong, or at minimum required an explicit `output_dimension` parameter on every Cohere call that the original design didn't account for. This surfaced the provider question rather than just a config fix.
+
+**Decision**: Switch the embedding provider to OpenAI, model **`text-embedding-3-small`**, using OpenAI's own `dimensions` parameter to request exactly 1024 and keep the existing `embeddings.embedding vector(1024)` schema unchanged. No migration needed for the column itself. `text-embedding-3-large` was considered (stronger non-English claims per OpenAI's own materials) but rejected for now on cost (6.5x `-small`'s price) given the Arabic-quality risk below is already an accepted unknown either way — revisit `-large` specifically if `-small`'s Arabic retrieval quality proves insufficient once stage three's cross-team query is live, rather than paying the premium against an unconfirmed benefit now.
+
+**Reasoning**:
+- OpenAI is already the LLM provider for T2.3's supervisor-summary generation. One fewer vendor/API key to manage, not two separate AI providers.
+- Meaningfully cheaper: `text-embedding-3-small` runs $0.02/1M tokens vs Cohere `embed-v4.0`'s $0.12/1M — a 6x difference at scale. `text-embedding-3-large` at $0.13/1M is roughly comparable to Cohere if the larger model's quality is wanted instead.
+- No `input_type` (`search_document` vs `search_query`) asymmetry to get wrong. The original spec flagged this Cohere-specific requirement as a likely-to-be-quietly-mismatched bug between stage two's document-side embedding and stage three's future query-side embedding. OpenAI has no equivalent parameter, which removes that whole failure class rather than just documenting around it.
+
+**Accepted risk, not resolved**: Cohere was chosen specifically for Arabic-language embedding quality, and there is no confirmed independent benchmark showing OpenAI's `text-embedding-3` models match Cohere's multilingual/cross-lingual strength for Arabic specifically. OpenAI's own materials claim `text-embedding-3-large` is their most capable model for non-English tasks, but this is a vendor claim, not independent verification. This is a real tradeoff being accepted for cost and architectural simplicity, not a confirmed quality win. If Arabic retrieval quality turns out poor once stage three's cross-team query is live, revisit this decision — reversing it means a corpus-wide re-embed (the `model_name` column on `embeddings` exists precisely to make that a detectable, migratable operation, per spec §1.7).
+
+**Rejected**: Staying on Cohere and just adding the missing `output_dimension: 1024` parameter to fix the immediate dimension mismatch. Rejected because the cost and vendor-consolidation case for OpenAI was strong enough on its own to be worth taking now rather than revisiting later, and the dimension bug was the trigger for evaluating the provider, not the whole reason to switch.
+
+**Implementation consequence**: T2.4's cron code, written against Cohere, needs reworking — drop the `cohere-ai` SDK and `COHERE_API_KEY`, drop `input_type` handling entirely, add `dimensions: 1024` to the OpenAI embeddings call, and use a distinct env var for the embedding model (`OPENAI_EMBEDDING_MODEL`) separate from `OPENAI_MODEL` (which is T2.3's chat-completion model) so the two are never conflated in config.
+
+## Stage Two — complete (T3.1 gate passed, T4.1/T4.2 shipped)
+
+**Date**: 2026-07-12
+
+All fifteen stage-two tickets are done: schema (T1.1–T1.7), backend logic (T2.1–T2.5), the stage-two gate (T3.1), and UI (T4.1 summary view, T4.2 alert dashboard). All nine gate checks were independently re-verified against the live remote database (`dguamjezvrmdfoyctbxp`), not accepted from agent self-report — see the gate report for the full method (forced circuit-breaker trips and attempts-cap failures with disposable poison queue rows, a full re-run of the stage-one task-state matrix including a direct service-role `missed` attempt, RLS boundary checks via simulated authenticated sessions on real accounts).
+
+**Bugs found and fixed during the gate/UI pass, not by the coding agent's own tests:**
+- `proxy.ts` (Clerk middleware) didn't allowlist new `/api/cron/*` routes as they were added — every new cron 404'd behind `auth.protect()` in a way that looked like a routing bug, not an auth bug. Hit on both `/api/cron/embeddings` and `/api/cron/task-alerts`; a comment is now in `proxy.ts` itself flagging this for the next cron route.
+- `lib/actions/summary.ts`: the generator-error logging path set `latency_ms` to an absolute epoch timestamp (`Date.now()`) instead of an elapsed duration, overflowing the `int` column and silently failing that specific `ai_call_log` insert (caught by its own inner try/catch, so it never surfaced as an error — it just meant generator-error refusals were never actually logged). Fixed to compute real elapsed ms from a captured call-start time. Found only because the gate's check-9 test suite was actually executed end-to-end for the first time (previous ticket acceptances relied on code review, not a real run).
+- `app/supervisor/alerts/page.tsx`: alerts were silently dropped from the dashboard if the assignee wasn't in the caller's own subtree list — but `task_alerts` RLS grants visibility on two independent conditions (assigner OR ancestor-of-assignee), and task assignment isn't hierarchy-gated, so a supervisor who assigned a task outside their own branch would have a real, valid alert vanish from their own dashboard. Fixed to fall back to showing the raw id rather than dropping the row.
+- Multiple test-infrastructure bugs surfaced only once tests were actually run against a freshly-reset local Supabase instead of code-reviewed: service-role vs. authenticated-client mismatches on tables with no service-role grant by design (`journal_entries` — T1.1b), missing test isolation letting one test's `ai_call_log` row rate-limit the next test in the same file, and a mock `.then()` override that didn't implement the thenable protocol correctly (silently hung instead of rejecting).
+
+**Process note**: local Supabase (`supabase start`) was found significantly out of sync with the migrations directory going into this pass — confirms the standing discipline of verifying against the live remote project rather than trusting local state, and additionally shows local dev-test runs need the same discipline (`supabase db reset` before trusting a local test run, not just before a remote push).
+
+**On the horizon**: six-month review (scope-vs-adoption reality, Clerk account handover), the 11-table grants debt tracked in earlier stage-one entries, and stage three (cross-team query, synthesis prep, clone agent) — none of which are started.
